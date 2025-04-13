@@ -12,7 +12,7 @@ Une approche intelligente, collaborative, et surtout essentielle pour renforcer 
 
 Pour performer en bug bounty, il est essentiel de connaître la majorité des vulnérabilités qui s'appliquent aux applications web. Un bon point de départ est le **OWASP Top 10**, qui regroupe les 10 types de vulnérabilités les plus répandues sur les sites web. C’est sur ce type de failles que je concentre mes efforts, me spécialisant particulièrement dans le pentest d’applications web.
 
-![Placeholder pour une illustration OWASP Top 10](image-owasp-placeholder.png)
+![Illustration OWASP TOP 10](owasp-top-10.png)
 
 ## Ma découverte du monde des bug bountys
 
@@ -30,7 +30,7 @@ La vulnérabilité venait d’une mauvaise gestion de ce protocole. Uber ne vér
 
 Un ami dans la cybersécurité me parle alors des programmes de bug bounty. J’envoie un rapport à Uber, et quelques semaines plus tard, je reçois une récompense. Une révélation : je décide de me lancer sérieusement dans le signalement de failles.
 
-![Placeholder pour une capture des Devtools ou schéma OAuth](image-oauth-placeholder.png)
+![Illustration OAUTH2](oauth2schema.png)
 
 ## Cairn.info – Comment une simple requête SQL sur un sous-domaine a mené à un accès total
 
@@ -44,7 +44,7 @@ Grâce à cette faille, je pouvais exécuter n’importe quelle requête SQL. En
 
 J’ai immédiatement signalé la vulnérabilité à l’équipe de Cairn, qui m’a félicité pour la découverte.
 
-![Placeholder pour schéma fonctionnement SQLi](image-sqli-placeholder.png)
+![Illustration SQLi](sqlischema.png)
 
 ## La Poste – Une vulnérabilité de type Cross-Site Scripting (XSS)
 
@@ -61,7 +61,7 @@ Bingo : une alerte s’affiche avec mes cookies.
 
 Un script malveillant aurait pu les exfiltrer, permettant de pirater des comptes.
 
-![Placeholder pour capture de l’alerte XSS](image-xss-placeholder.png)
+![Illustration XSS](xssschema.png)
 
 ## Swile – Account Takeover : des millions d’euros de tickets restaurant en jeu
 
@@ -75,7 +75,7 @@ J’accédais ainsi à l’interface administrateur de n’importe quelle entrep
 
 Je n’ai évidemment rien exploité et ai immédiatement signalé la faille.
 
-![Placeholder pour schéma SIRET/Inscription](image-swile-placeholder.png)
+![Illustration ATO Swile](swileato.png)
 
 ## Des failles, mais surtout des leçons
 
