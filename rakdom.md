@@ -1,85 +1,166 @@
 # Shrimp Say 🦐
 
-# Category
+## Category
 
 Web
 
-# Author
+## Author
 
 Dav3n
 
-# Description
-La société Antarctic Vault propose à ses clients du stockage au froid pour une meilleure conservation. Ce stockage est donc situé au plus profond de la couche de glace de l'antarctique au sein de nœuds à basse consommation.
+## Description
+```
+ _______________
+< Hello, world! >
+ ---------------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+```
 
-Dans ces noeuds, une application permet le stockage de secrets et la récupération via une authentification asymétrique répondant aux plus hauts standards du marché. La connexion des clients aux coffre-forts se fait à l'aide de bornes Wi-Fi avec un niveau de sécurité très élevé.
+A new version of cowsay has been released ! Shrimp Say 🦐 ! 
 
-Cependant, cette société, qui héberge des données très sensibles du FCSC, a pu se rendre compte qu'un acteur malveillant s'était connecté sur un de ses équipements. Un point d'accès malveillant s'est présenté au nœud et celui-ci s'y est connecté. Le Centre des Opération de Sécurité a pu réaliser deux captures, une capture réseau de la connexion du point d'accès et une capture mémoire du nœud avant les opérations de l'acteur malveillant.
+In this challenge we are given
+- The Shrimp-Say website
+- A Netcat tunnel linked to a bot that go on the url we want (No internet in this case)
 
-Saurez-vous retrouver le secret qui a été exfiltré ?
+# Methodology
+## 1 - Review the code
 
+![Codetree](codetree.png)
+
+We begin by searching where the flag is stored, using for exemple : 
+```sh
+grep -r flag
+```
+We can see in the bot.js file that the flag is set in the LocalStorage 
+```js
+...
+  logMainInfo(`Setting the flag in the localStorage for ${CHALLENGE_HOST}...`);
+  await page.goto(CHALLENGE_HOST, { timeout: 1000, waitUntil: "domcontentloaded" });
+
+  await page.evaluate((flag) => {
+    localStorage.setItem("flag", flag);
+  }, FLAG);
+...
+```
+From this, we can determine that: : 
+- The flag is stored in the Localstorage of the bot 
+- We can submit an url that the bot will visit
+
+## 2 - Enumerate potential vulnerabilities
+
+Next we examine the Dockerfiles in order to see the versions of installed packages
+Shrimp-say Dockerfile : 
+```docker
+FROM php:8.3.0-apache
+COPY ./index.php ./shrimp.gif /var/www/html/
+EXPOSE 80
+```
+
+Shrimp-say-bot Dockerfile : 
+
+```docker
+FROM alpine:3.21
+WORKDIR /usr/app
+COPY ./src/package.json .
+RUN apk add --update --no-cache    \
+	nodejs~=22                     \
+	npm~=10                        \
+	socat~=1.8                     \
+	chromium-chromedriver~=133  && \
+	npm install
+COPY ./src .
+EXPOSE 4000
+CMD ["socat", "tcp-listen:4000,reuseaddr,fork", "exec:'node /usr/app/bot.js'"]
+```
+After reviewing all that, we see that there are no evident CVE's for this challenge and we start exploring the code.
+
+We understand that the webapp take two parameters **$msg** and **$bg** that are both reflected into the web page.
+
+**$bg** is reflected into the css defining the background color and is passed into htmlentities (sanitizing it).
+```css
+...
+body {
+      background-color: <?= htmlentities($bg) ?>;
+    }
+...
+```
+And **$msg** is reflected by a strange way (passed in php function base64_encode then gets base64 decoded using atob in js)
+```html
+<script type="text/base64" id="data"><?= base64_encode($msg) ?></script>
+  <script>
+    document.querySelector(".speech-bubble").innerHTML = atob(document.getElementById('data').innerText)
+  </script>
+```
+We also take note that the character "<" is forbidden in the **$msg** parameter 
+
+```php
+if (strpos($msg, "<") !== false) {
+  redirect("NO XSS", "red");
+}
+```
+In conclusion we have two reflected parameters : 
+- **$bg**, reflected in a style tag that is sanitized using htmlentities
+- **$msg**, directly reflected that is not sanitized but the less-than character is blocked
+
+
+## 3 - Elaborate strategies
+After reviewing everything we have we can think about many attacks, **$bg** is reflected in the style tag so we can go for a css injection but it won't help here because css injection cannot access LocalStorage objects and can only access some direct html data on the page and **$msg** would be a good candidate for xss but "<" is blocked.
+
+So we need to bypass the less-than character restriction in order to achieve the xss here !
+
+My first strategies was to use html entities in order to bypass the restriction ( ```&lt;```or ```&#60;``` ) so the url looked like that 
+
+```https://shrimp-say.fcsc.fr/?msg=&#60;img src=x onerror=alert(1)&#62;&bg=blue```
+
+with the html entities url-encoded for the webapp to not interpret it as a parameter 
+
+These first strategies didn't worked well as the webapp was rendering the script that in a sanitized form.
+
+But next i remembered that i had 2 reflected parameters the **$bg** parameter could control CSS and i watched carefuly all the css properties i was able could use.
+We also remember that "<" is blocked ! Why would the admin block this less-than caracter if it wasn't harmful. 
+So from here i concluded that the idea was to bypass this restriction.
 # Solution
 
-In this challenge, the objective is quite clear, we have been provided with a memory capture and a pcap file, so we will have to decrypt it. If we open this one, we notice several things:
+In this challenge, the objective is quite clear, we need to achieve an xss in order to get the flag via the bot with a console.log. The ability to add css via the **$bg** parameter in addition to unsanitized data via the **$msg** parameter
 
-![1](images/1.png)
-
-We are given a WiFi capture using SAE encryption and certainly WPA. This is very important for the rest of the challenge, indeed, to decrypt this kind of traffic, we will not use a password with (or without) the SSID as we are used to do. Here, we will need what we call the Transmission Key (tk).
-
-Its format is known (128 bits), and must surely be in the memory dump! I first tried the famous "strings | grep" method to get all strings that match 128 bits strings with hexadecimal characters, then I used this script to bruteforce all the possibilities :
-
-```py
-#bf.py
-import itertools
-import subprocess
-from multiprocessing import Process
-array_to_split = open("pos","r").read().split("\n")[:-1]
-nb_thread = 50
-print("Bruteforce started...")
-
-def bruteforce(permutations,id):
-	print(f"Thread {id} started with {len(permutations)} possibilities")
-	nb_try = 0
-	for p in permutations:
-		proc = subprocess.Popen(["./decrypt_wpa3.sh",p], stdout=subprocess.PIPE)
-		if(len(proc.communicate()[0].decode()) > 344):
-			print(f"Found valid tk: {p}")
-			print("Stopping bruteforce")
-			break
-		else:
-			nb_try += 1
-			if(nb_try % 1000 == 0):
-				print(f"Done: {nb_try}/{len(permutations)}")
-
-pool = []
-chunk = len(array_to_split) // int(nb_thread)
-for i in range(0,int(nb_thread)):
-        thread_array = array_to_split[chunk*i:chunk*(i+1)]
-        thread = Process(target=bruteforce,args=(thread_array,str(i),))
-        pool.append(thread)
-
-if len(array_to_split) % int(nb_thread) != 0:
-        start = len(array_to_split) // int(nb_thread) * int(nb_thread)
-        thread_array = array_to_split[start:]
-        thread = Process(target=bruteforce,args=(thread_array,str(nb_thread),))
-        pool.append(thread)
-for p in pool:
-        p.start()
+```html
+<script type="text/base64" id="data"><?= base64_encode($msg) ?></script>
+  <script>
+    document.querySelector(".speech-bubble").innerHTML = atob(document.getElementById('data').innerText)
+  </script>
 ```
+By looking more carefuly at the code that decode the base64 and render the content we see something really interesting. The uses of innerText here is very interesting because innerText attribute not only get the raw text in the data element, but it get the text by it's appearance.
 
-```sh
-#decrypt_wpa.sh
-#!/bin/bash
-tshark -r capture1.pcap -o "wlan.enable_decryption:TRUE" -o "uat:80211_keys:\"tk\",\"$1\""| grep -v "802.11"
-```
+After looking at all the interesting css properties there's one caught my eye : ```text-transform```, with this property we could use something like ```text-transform: uppercase``` and it would change the base64 data (and it's decoded text) by putting it in uppercase.
 
-Unfortunately, it didn't work. Thinking about it and searching on the internet, SAE uses AES for its encryption protocol, so that's when I got the idea to use the "aeskeyfind" tool to get a potential key. What is funny is that my first reflex on this challenge was to use this tool, but I had forgotten it...
+So now we have the concept and we need to apply it to bypass the filtered less-than character, we can manipulate the base64 to get a different rendered content that the one we send.
 
-Using aeskeyfind, we found 4 possible keys, let's try them on wireshark ! And it work, we manage to decrypt the traffic and get our precious flag !
+### An exemple : 
+If we send as the payload in the **$msg** parameter the text "rb" and we transform the base64 to lowercase (```https://shrimp-say.fcsc.fr/?msg=rb&bg=lightblue);%7D%20%23data%7Bdisplay:block;text-transform:lowercase```) we get the text "rh" in the speech bubble. 
 
-![2](images/2.png)
+This shows that we can manipulate the inserted data after it passes the strpos check !
 
-![3](images/3.png)
+### Now let's get the flag !
+
+The first challenge we encounter is that when applying ```text-transform: uppercase``` or ```text-transform: lowercase``` on the **$msg** data it will affect all the base64 data and not only a particular character to change it to "<" so we need to find a way to only change the first character of the base64 to transform the start of the text from a specific character this famous less-than character.
+
+ The solution for that is to use the pseudo-element : ```first-character``` 
+ it will allow us to only transform the first character of the base64.
+ So to finish and get the flag we need to find a character that, when base64 encoded and transformed to uppercase or lowercase becomes "<".
+ We know that the base64 equivalent of ```<``` is ```PA==``` so we need to use the character that as for base64 equivalent ```pA==``` and it corresponds to  the character : ```%4a```.
+
+ We now try to get the flag by using the console.log(localStorage.getItem('flag')) as we know that the flag is stored in the LocalStorage and the bot shows the console.log outputs
+
+ #### Final Payload : 
+
+ ```http://shrimp-say/?msg=%a4img%20src=x%20onerror=console.log(localStorage.getItem(%22flag%22))%3E&bg=lightblue);}%20%23data{display:block;}%20%23data::first-letter{text-transform:uppercase```
+
+ With %4a that get his base64 capitalized and get transformed to < the image is injected and the not found image causes the javascript to execute and the flag to be shown ! (We use shrimp-say host as specified in the docker-compose file)
 
 # Flag
 
-FCSC{6d6862a2d54b8d01880a8acfb57c25d1d49a9929f1ea5da92f411234aba51065}
+FCSC{f6e865cb389605d91470af3b8555e4535463a1a56157c16c858fa8e9c5ff4513}
